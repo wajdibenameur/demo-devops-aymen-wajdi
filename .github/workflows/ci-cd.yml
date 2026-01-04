@@ -5,7 +5,7 @@ on:
     branches: [ main, master, develop ]
   pull_request:
     branches: [ main, master ]
-  workflow_dispatch:  # Permet de lancer manuellement
+  workflow_dispatch:
 
 jobs:
   test-and-analysis:
@@ -15,6 +15,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Important pour SonarCloud
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -23,10 +25,29 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
+      - name: Cache Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
       - name: Build and run tests with coverage
         run: |
           mvn clean verify
           mvn jacoco:report
+
+      - name: Verify JaCoCo report exists
+        run: |
+          echo "Checking JaCoCo report..."
+          if [ -f "target/site/jacoco/jacoco.xml" ]; then
+            echo "✅ JaCoCo XML report found"
+            echo "Report size: $(wc -l < target/site/jacoco/jacoco.xml) lines"
+          else
+            echo "❌ JaCoCo XML report not found!"
+            find . -name "jacoco.xml" -type f
+            exit 1
+          fi
 
       - name: Upload JaCoCo report
         uses: actions/upload-artifact@v4
@@ -35,26 +56,32 @@ jobs:
           path: target/site/jacoco/
 
       - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@master
+        uses: SonarSource/sonarcloud-github-action@v2.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
+          projectBaseDir: .
           args: >
-            -Dsonar.projectKey=${{ github.repository }}
+            -Dsonar.projectKey=wajdibenameur_demo-devops-aymen-wajdi
             -Dsonar.organization=wajdibenameur
             -Dsonar.sources=src/main/java
             -Dsonar.tests=src/test/java
             -Dsonar.java.binaries=target/classes
+            -Dsonar.java.libraries=target/dependency/*
             -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
-            -Dsonar.junit.reportPaths=target/surefire-reports,target/failsafe-reports
+            -Dsonar.junit.reportPaths=target/surefire-reports
+            -Dsonar.host.url=https://sonarcloud.io
+            -Dsonar.scm.provider=git
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-results
-          path: target/surefire-reports/
+          path: |
+            target/surefire-reports/
+            target/failsafe-reports/
 
   security-scan:
     name: Security Scan
@@ -65,23 +92,33 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
       - name: OWASP Dependency Check
         run: |
           mvn org.owasp:dependency-check-maven:check \
-            -Dformat=HTML \
-            -Dformat=JSON
+            -Dformat=ALL \
+            -DfailBuildOnCVSS=8 \
+            -DskipProvidedScope=true \
+            -DskipRuntimeScope=true
 
       - name: Upload security report
         uses: actions/upload-artifact@v4
         with:
           name: security-reports
-          path: target/dependency-check-report.*
+          path: |
+            target/dependency-check-report.*
+            target/dependency-check-data/
 
   build-and-package:
     name: Build Docker Image
     runs-on: ubuntu-latest
     needs: [test-and-analysis, security-scan]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
 
     steps:
       - name: Checkout code
@@ -97,47 +134,83 @@ jobs:
         run: mvn clean package -DskipTests
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
       - name: Log in to DockerHub
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKER_USERNAME }}/demo-devops
+          tags: |
+            type=sha,prefix={{branch}}-
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            latest
+
       - name: Build and push Docker image
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           context: .
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: |
-            ${{ secrets.DOCKER_USERNAME }}/demo-devops:latest
-            ${{ secrets.DOCKER_USERNAME }}/demo-devops:${{ github.sha }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Scan Docker image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ secrets.DOCKER_USERNAME }}/demo-devops:latest
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-scan-results
+          path: trivy-results.sarif
 
   deploy-preview:
     name: Deploy Preview
     runs-on: ubuntu-latest
-    needs: build-and-package
+    needs: [test-and-analysis, security-scan]
     if: github.event_name == 'pull_request'
+
+    # Cette étape est optionnelle et dépend de votre environnement
+    # Vous pouvez décommenter et configurer selon vos besoins
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Deploy to Preview Environment
+      - name: Set up environment
         run: |
           echo "Deploying preview for PR #${{ github.event.pull_request.number }}"
-          # Ici vous pouvez ajouter votre logique de déploiement
-          # Ex: docker-compose up, kubectl apply, etc.
+          echo "Branch: ${{ github.head_ref }}"
+          echo "SHA: ${{ github.sha }}"
+
+      # - name: Deploy to Kubernetes (Preview)
+      #   run: |
+      #     kubectl apply -f k8s/preview.yaml
+      #     kubectl set image deployment/preview-app \
+      #       app=${{ secrets.DOCKER_USERNAME }}/demo-devops:${{ github.sha }}
 
   deploy-production:
     name: Deploy to Production
     runs-on: ubuntu-latest
     needs: build-and-package
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+
+    # Cette étape est optionnelle et dépend de votre environnement de production
+    # Vous pouvez décommenter et configurer selon vos besoins
 
     steps:
       - name: Checkout code
@@ -145,5 +218,30 @@ jobs:
 
       - name: Deploy to Production
         run: |
-          echo "Deploying to production..."
-          # Ici votre logique de déploiement en production
+          echo "🚀 Deploying to production..."
+          echo "Version: ${{ github.sha }}"
+          echo "Image: ${{ secrets.DOCKER_USERNAME }}/demo-devops:${{ github.sha }}"
+          
+          # Exemple pour Kubernetes:
+          # kubectl apply -f k8s/production.yaml
+          # kubectl set image deployment/production-app app=${{ secrets.DOCKER_USERNAME }}/demo-devops:${{ github.sha }}
+          
+          # Exemple pour Heroku:
+          # docker tag ${{ secrets.DOCKER_USERNAME }}/demo-devops:${{ github.sha }} registry.heroku.com/${{ secrets.HEROKU_APP_NAME }}/web
+          # docker push registry.heroku.com/${{ secrets.HEROKU_APP_NAME }}/web
+          # heroku container:release web -a ${{ secrets.HEROKU_APP_NAME }}
+          
+          # Exemple pour AWS ECS:
+          # aws ecs update-service --cluster my-cluster --service my-service --force-new-deployment
+
+      - name: Health check
+        run: |
+          echo "Performing health check..."
+          # curl -f https://votre-app.com/health || exit 1
+          sleep 10
+
+      - name: Send deployment notification
+        if: success()
+        run: |
+          echo "✅ Deployment successful!"
+          # Ici vous pouvez ajouter des notifications (Slack, Email, etc.)
