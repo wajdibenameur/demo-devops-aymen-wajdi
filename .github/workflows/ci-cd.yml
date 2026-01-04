@@ -55,24 +55,24 @@ jobs:
           name: jacoco-report
           path: target/site/jacoco/
 
-      - name: SonarCloud Scan - Version fixée
-        uses: SonarSource/sonarcloud-github-action@v2.0.0
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
           projectBaseDir: .
           args: >
-            -Dsonar.projectKey=demo-devops-aymen-wajdi
+            -Dsonar.projectKey=wajdibenameur_demo-devops-aymen-wajdi
             -Dsonar.organization=wajdibenameur
             -Dsonar.sources=src/main/java
             -Dsonar.tests=src/test/java
             -Dsonar.java.binaries=target/classes
-            -Dsonar.java.libraries=target/dependency/*
             -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
             -Dsonar.junit.reportPaths=target/surefire-reports
             -Dsonar.host.url=https://sonarcloud.io
             -Dsonar.scm.provider=git
+            -Dsonar.branch.name=${{ github.ref_name }}
 
       - name: Upload test results
         if: always()
