@@ -63,7 +63,7 @@ jobs:
         with:
           projectBaseDir: .
           args: >
-            -Dsonar.projectKey=wajdibenameur_demo-devops-aymen-wajdi
+            -Dsonar.projectKey=demo-devops-aymen-wajdi
             -Dsonar.organization=wajdibenameur
             -Dsonar.sources=src/main/java
             -Dsonar.tests=src/test/java
