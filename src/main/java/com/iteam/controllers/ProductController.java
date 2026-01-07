@@ -11,7 +11,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -35,9 +34,12 @@ public class ProductController {
 
     })
     @PostMapping("/create")
-    public ResponseEntity<Product> createProduct(@RequestBody Product product) {
+    public ResponseEntity<Object> createProduct(@RequestBody Product product) {
         Product savedProduct = productService.createProduct(product);
-        return  ResponseEntity.status(HttpStatus.CREATED).body(savedProduct);
+        return  ResponseEntity.status(HttpStatus.CREATED).body(Map.of(
+                "message","Created Product successfully",
+                "Product",savedProduct
+        ));
     }
     // Get All Product
     @Operation(summary = "Get all Product")
@@ -52,7 +54,7 @@ public class ProductController {
         return ResponseEntity.ok(productService.findProductById(id));
     }
     // Update Product
-    @Operation(summary = "Updatee a Product")
+    @Operation(summary = "Update a Product")
     @ApiResponse(responseCode = "404" , description = "Product Not found")
     @PutMapping("/{id}")
     public ResponseEntity<Product> updateProduct(@PathVariable(name = "id") Long id,
@@ -62,22 +64,18 @@ public class ProductController {
     // Delete Product
     @Operation(summary = "Delete a Product")
     @DeleteMapping("/{id}")
-    public ResponseEntity<Product> deleteProduct(@PathVariable(name = "id") Long id) {
+    public ResponseEntity<Object> deleteProduct(@PathVariable(name = "id") Long id) {
         productService.deleteProduct(id);
-        return ResponseEntity.noContent().build(); // 204
+        return ResponseEntity.ok(Map.of(
+                "message","Product delete with success",
+                "id",id
+        ));
     }
 
 
 
-    // Gestion globale des exceptions (ajouté)
-//    @exceptionhandler(runtimeexception.class)
-//    public responseentity<map<string, string>> handleruntimeexception(runtimeexception e) {
-//        map<string, string> error = new hashmap<>();
-//        error.put("message", e.getmessage());
-//        error.put("status", "not_found");
-//        return responseentity.status(httpstatus.not_found).body(error);
-//    }
-//
+
+
 
 
 

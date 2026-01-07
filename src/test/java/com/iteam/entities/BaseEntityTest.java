@@ -6,11 +6,22 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class BaseEntityTest {
 
+    // Création d'une classe concrète pour le test
+    @lombok.ToString(callSuper = true)
+    static class TestEntity extends BaseEntity {
+        public TestEntity() {
+            super();
+        }
+
+        public TestEntity(Long id) {
+            super(id);
+        }
+    }
+
     @Test
     void testNoArgsConstructorAndSetters() {
         // Arrange & Act
-        // Création d'une classe anonyme pour tester BaseEntity (classe abstraite)
-        BaseEntity entity = new BaseEntity() {};
+        TestEntity entity = new TestEntity();
         entity.setId(1L);
 
         // Assert
@@ -20,8 +31,7 @@ class BaseEntityTest {
     @Test
     void testAllArgsConstructor() {
         // Arrange & Act
-        // Création d'une classe anonyme avec constructeur
-        BaseEntity entity = new BaseEntity(1L) {};
+        TestEntity entity = new TestEntity(1L);
 
         // Assert
         assertThat(entity.getId()).isEqualTo(1L);
@@ -30,26 +40,43 @@ class BaseEntityTest {
     @Test
     void testEqualsAndHashCode() {
         // Arrange
-        BaseEntity entity1 = new BaseEntity(1L) {};
-        BaseEntity entity2 = new BaseEntity(1L) {};
-        BaseEntity entity3 = new BaseEntity(2L) {};
+        TestEntity entity1 = new TestEntity(1L);
+        TestEntity entity2 = new TestEntity(1L);
+        TestEntity entity3 = new TestEntity(2L);
 
         // Assert
         assertThat(entity1).isEqualTo(entity2);
         assertThat(entity1.hashCode()).isEqualTo(entity2.hashCode());
         assertThat(entity1).isNotEqualTo(entity3);
+        assertThat(entity1.hashCode()).isNotEqualTo(entity3.hashCode());
     }
 
     @Test
     void testToString() {
         // Arrange
-        BaseEntity entity = new BaseEntity(1L) {};
+        TestEntity entity = new TestEntity(1L);
 
         // Act
         String toString = entity.toString();
 
-        // Assert
-        assertThat(toString).contains("BaseEntity");
+        // Assert - Maintenant cela affichera "BaseEntityTest$TestEntity(id=1)"
         assertThat(toString).contains("id=1");
+        // Vous pouvez ajuster l'assertion pour être plus flexible :
+        assertThat(toString).contains("TestEntity");
+        assertThat(toString).contains("id=1");
+    }
+
+    @Test
+    void testNullId() {
+        // Arrange
+        TestEntity entity = new TestEntity();
+
+        // Assert
+        assertThat(entity.getId()).isNull();
+
+        // Test toString avec id null
+        String toString = entity.toString();
+        assertThat(toString).contains("TestEntity");
+        assertThat(toString).contains("id=null");
     }
 }

@@ -1,167 +1,98 @@
-package com.iteam.controllers;
-import com.iteam.exception.GlobalExceptionHandler; // IMPORT AJOUTÉ
+package com.iteam.integration;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.iteam.entities.Product;
-import com.iteam.service.ProductService;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
+import com.iteam.repositories.ProductRepository;
+import org.junit.jupiter.api.*;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.util.Arrays;
-import java.util.List;
-
-import static org.hamcrest.Matchers.hasSize;
-import static org.hamcrest.Matchers.is;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.*;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@ExtendWith(MockitoExtension.class)
-@DisplayName("Tests unitaires du contrôleur ProductController")
-class ProductControllerTest {
+@SpringBootTest
+@AutoConfigureMockMvc
+@ActiveProfiles("test")
+@DisplayName("Tests d'intégration Product")
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+@Transactional
+class productIntegrationTest {
 
+    @Autowired
     private MockMvc mockMvc;
 
-    @Mock
-    private ProductService productService;
+    @Autowired
+    private ProductRepository productRepository;
 
-    @InjectMocks
-    private ProductController productController;
-
+    @Autowired
     private ObjectMapper objectMapper;
-    private Product product;
 
     @BeforeEach
     void setUp() {
-        objectMapper = new ObjectMapper();
-
-        product = new Product();
-        product.setId(1L);
-        product.setNameProduct("Laptop");
-        product.setPrice(1500.0);
-        product.setQuantity(10);
-        // Initialiser MockMvc avec le contrôleur ET GlobalExceptionHandler
-        mockMvc = MockMvcBuilders.standaloneSetup(productController)
-                .setControllerAdvice(new GlobalExceptionHandler()) // IMPORTANT
-                .build();
-
+        productRepository.deleteAll();
     }
 
     @Test
-    @DisplayName("POST /api/products/create - Créer un produit avec succès")
-    void createProduct_ShouldReturnCreated() throws Exception {
-        // Arrange
-        when(productService.createProduct(any(Product.class))).thenReturn(product);
+    @Order(1)
+    @DisplayName("Scénario complet: CRUD produit")
+    void fullCrudScenario() throws Exception {
+        // 1. CREATE
+        Product newProduct = new Product();
+        newProduct.setNameProduct("Laptop");
+        newProduct.setPrice(1500.0);
+        newProduct.setQuantity(10);
 
-        // Act & Assert
         mockMvc.perform(post("/api/products/create")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(product)))
+                        .content(objectMapper.writeValueAsString(newProduct)))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.nameProduct", is("Laptop")))
-                .andExpect(jsonPath("$.price", is(1500.0)))
-                .andExpect(jsonPath("$.quantity", is(10)));
-    }
+                .andExpect(jsonPath("$.Product.nameProduct").value("Laptop"))  // CORRECTION: $.Product.nameProduct
+                .andExpect(jsonPath("$.Product.price").value(1500.0))
+                .andExpect(jsonPath("$.Product.quantity").value(10))
+                .andExpect(jsonPath("$.message").value("Created Product successfully"));
 
-    @Test
-    @DisplayName("GET /api/products - Récupérer tous les produits")
-    void getAllProducts_ShouldReturnAllProducts() throws Exception {
-        // Arrange
-        List<Product> products = Arrays.asList(
-                product,
-                new Product(2L, "Phone", 800.0, 20)
-        );
-        when(productService.findAll()).thenReturn(products);
+        // Vérifier en base
+        assertThat(productRepository.count()).isEqualTo(1);
 
-        // Act & Assert
+        // 2. READ ALL
         mockMvc.perform(get("/api/products"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(2)))
-                .andExpect(jsonPath("$[0].nameProduct", is("Laptop")))
-                .andExpect(jsonPath("$[1].nameProduct", is("Phone")));
-    }
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].nameProduct").value("Laptop"));
 
-    @Test
-    @DisplayName("GET /api/products/{id} - Récupérer un produit par ID")
-    void getProductById_ShouldReturnProduct() throws Exception {
-        // Arrange
-        when(productService.findProductById(1L)).thenReturn(product);
+        // 3. READ BY ID
+        Long productId = productRepository.findAll().get(0).getId();
 
-        // Act & Assert
-        mockMvc.perform(get("/api/products/1"))
+        mockMvc.perform(get("/api/products/" + productId))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.nameProduct", is("Laptop")))
-                .andExpect(jsonPath("$.price", is(1500.0)));
-    }
+                .andExpect(jsonPath("$.nameProduct").value("Laptop"))
+                .andExpect(jsonPath("$.price").value(1500.0));
 
-    @Test
-    @DisplayName("GET /api/products/{id} - Produit non trouvé")
-    void getProductById_NotFound() throws Exception {
-        // Arrange
-        when(productService.findProductById(99L))
-                .thenThrow(new RuntimeException("Product not found"));
+        // 4. UPDATE
+        Product updatedProduct = new Product();
+        updatedProduct.setNameProduct("Laptop Pro");
+        updatedProduct.setPrice(2000.0);
+        updatedProduct.setQuantity(15);
 
-        // Act & Assert - Maintenant avec GlobalExceptionHandler, ça renvoie 404
-        mockMvc.perform(get("/api/products/99"))
-                .andExpect(status().isNotFound()) // CHANGÉ : isNotFound() au lieu de is5xxServerError()
-                .andExpect(jsonPath("$.message").value("Product not found"))
-                .andExpect(jsonPath("$.status").value(404))
-                .andExpect(jsonPath("$.error").value("Not Found"))
-                .andExpect(jsonPath("$.timestamp").exists());
-    }
-    @Test
-    @DisplayName("PUT /api/products/{id} - Mettre à jour un produit")
-    void updateProduct_ShouldUpdateProduct() throws Exception {
-        // Arrange
-        Product updatedProduct = new Product(1L, "Laptop Pro", 2000.0, 15);
-        when(productService.updateProduct(eq(1L), any(Product.class))).thenReturn(updatedProduct);
-
-        // Act & Assert
-        mockMvc.perform(put("/api/products/1")
+        mockMvc.perform(put("/api/products/" + productId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(updatedProduct)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.nameProduct", is("Laptop Pro")))
-                .andExpect(jsonPath("$.price", is(2000.0)));
-    }
+                .andExpect(jsonPath("$.nameProduct").value("Laptop Pro"))
+                .andExpect(jsonPath("$.price").value(2000.0));
 
-    @Test
-    @DisplayName("DELETE /api/products/{id} - Supprimer un produit")
-    void deleteProduct_ShouldReturnNoContent() throws Exception {
-        // Arrange
-        doNothing().when(productService).deleteProduct(1L);
+        // 5. DELETE
+        mockMvc.perform(delete("/api/products/" + productId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Product delete with success"))
+                .andExpect(jsonPath("$.id").value(productId.intValue()));
 
-        // Act & Assert
-        mockMvc.perform(delete("/api/products/1"))
-                .andExpect(status().isNoContent());
-    }
-
-    @Test
-    @DisplayName("POST /api/products/create - Données valides simples")
-    void createProduct_WithMinimalData() throws Exception {
-        // Arrange
-        Product minimalProduct = new Product();
-        minimalProduct.setNameProduct("Test");
-        minimalProduct.setPrice(10.0);
-        minimalProduct.setQuantity(1);
-
-        when(productService.createProduct(any(Product.class))).thenReturn(minimalProduct);
-
-        // Act & Assert
-        mockMvc.perform(post("/api/products/create")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(minimalProduct)))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.nameProduct", is("Test")))
-                .andExpect(jsonPath("$.price", is(10.0)));
+        assertThat(productRepository.count()).isEqualTo(0);
     }
 }

@@ -1,4 +1,5 @@
 package com.iteam.service;
+import com.iteam.Exceptions.NotFoundEntityExceptions;
 import com.iteam.entities.Product;
 import com.iteam.repositories.ProductRepository;
 import com.iteam.service.impl.ProductServiceImpl;
@@ -100,11 +101,10 @@ class ProductServiceTest {
 
         // Act & Assert
         assertThatThrownBy(() -> productService.findProductById(99L))
-                .isInstanceOf(RuntimeException.class)
-                .hasMessage("Product not found");
+                .isInstanceOf(NotFoundEntityExceptions.class)
+                .hasMessage("No Product present with ID : 99"); // Message EXACT
         verify(productRepository, times(1)).findById(99L);
     }
-
     @Test
     @DisplayName("updateProduct() - Doit mettre à jour un produit existant")
     void updateProduct_ShouldUpdateProduct_WhenProductExists() {

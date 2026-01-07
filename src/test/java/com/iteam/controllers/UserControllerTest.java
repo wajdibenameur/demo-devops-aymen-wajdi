@@ -1,7 +1,9 @@
 package com.iteam.controllers;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.iteam.Exceptions.NotFoundEntityExceptions;
 import com.iteam.entities.User;
+import com.iteam.handler.GlobalExceptionsHandler;
 import com.iteam.service.UserService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -33,7 +35,7 @@ class UserControllerTest {
     private UserService userService;
 
     @InjectMocks
-    private userController userController;
+    private UserController userController;
 
     private ObjectMapper objectMapper;
     private User user;
@@ -57,20 +59,20 @@ class UserControllerTest {
         user2.setEmail("fatma@email.com");
         user2.setPhoneNumber("87654321");
 
-        // Initialiser MockMvc avec le contrôleur
-        mockMvc = MockMvcBuilders.standaloneSetup(userController).build();
+        mockMvc = MockMvcBuilders.standaloneSetup(userController)
+                .setControllerAdvice(new GlobalExceptionsHandler())
+                .build();
     }
 
     @Test
     @DisplayName("GET /api/users - Liste des utilisateurs")
     void getAllUsers_Success() throws Exception {
-        // Arrange
         List<User> users = Arrays.asList(user, user2);
         when(userService.findAll()).thenReturn(users);
 
-        // Act & Assert
         mockMvc.perform(get("/api/users"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray())
                 .andExpect(jsonPath("$.length()").value(2))
                 .andExpect(jsonPath("$[0].firstName").value("Ahmed"))
                 .andExpect(jsonPath("$[1].firstName").value("Fatma"));
@@ -79,10 +81,8 @@ class UserControllerTest {
     @Test
     @DisplayName("GET /api/users/{id} - Utilisateur trouvé")
     void getUserById_Found() throws Exception {
-        // Arrange
         when(userService.findUserById(1L)).thenReturn(user);
 
-        // Act & Assert
         mockMvc.perform(get("/api/users/1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.firstName").value("Ahmed"))
@@ -92,36 +92,33 @@ class UserControllerTest {
     @Test
     @DisplayName("GET /api/users/{id} - Utilisateur non trouvé")
     void getUserById_NotFound() throws Exception {
-        // Arrange
         when(userService.findUserById(99L))
-                .thenThrow(new RuntimeException("User not found"));
+                .thenThrow(new NotFoundEntityExceptions("No User present with the ID: 99"));
 
-        // Act & Assert
-        // AVEC @ExceptionHandler → 404 NOT FOUND + JSON
         mockMvc.perform(get("/api/users/99"))
-                .andExpect(status().isNotFound()) // Changé à isNotFound()
-                .andExpect(jsonPath("$.message").value("User not found"))
-                .andExpect(jsonPath("$.status").value("NOT_FOUND"));
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("No User present with the ID: 99"))
+                .andExpect(jsonPath("$.error").value("Ressources_Not_Found"))
+                .andExpect(jsonPath("$.status").value(404));
     }
 
     @Test
     @DisplayName("POST /api/users/create - Créer un utilisateur")
     void createUser_Success() throws Exception {
-        // Arrange
         when(userService.createUser(any(User.class))).thenReturn(user);
 
-        // Act & Assert
         mockMvc.perform(post("/api/users/create")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(user)))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.firstName").value("Ahmed"));
+                .andExpect(jsonPath("$.user.firstName").value("Ahmed"))
+                .andExpect(jsonPath("$.user.email").value("ahmed@email.com"))
+                .andExpect(jsonPath("$.message").value("User created successfully"));
     }
 
     @Test
     @DisplayName("PUT /api/users/{id} - Mise à jour réussie")
     void updateUser_Success() throws Exception {
-        // Arrange
         User updatedUser = new User();
         updatedUser.setFirstName("Ahmed Updated");
         updatedUser.setLastName("New Lastname");
@@ -130,22 +127,22 @@ class UserControllerTest {
 
         when(userService.updateUser(eq(1L), any(User.class))).thenReturn(updatedUser);
 
-        // Act & Assert
         mockMvc.perform(put("/api/users/1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(updatedUser)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.firstName").value("Ahmed Updated"));
+                .andExpect(jsonPath("$.firstName").value("Ahmed Updated"))
+                .andExpect(jsonPath("$.email").value("new@email.com"));
     }
 
     @Test
     @DisplayName("DELETE /api/users/{id} - Suppression")
     void deleteUser_Success() throws Exception {
-        // Arrange
         doNothing().when(userService).deleteUserById(1L);
 
-        // Act & Assert
         mockMvc.perform(delete("/api/users/1"))
-                .andExpect(status().isNoContent());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("User deleted with success"))
+                .andExpect(jsonPath("$.id").value(1));
     }
 }

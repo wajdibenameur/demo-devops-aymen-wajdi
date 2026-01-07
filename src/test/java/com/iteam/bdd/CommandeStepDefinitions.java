@@ -57,7 +57,6 @@ public class CommandeStepDefinitions {
     }
 
     // ================= USERS =================
-
     @Etantdonné("un utilisateur {string} existe")
     public void un_utilisateur_existe(String name) {
         User user = new User();
@@ -69,7 +68,6 @@ public class CommandeStepDefinitions {
     }
 
     // ================= PRODUCTS =================
-
     @Et("un produit {string} existe")
     public void un_produit_existe(String name) {
         Product product = new Product();
@@ -80,20 +78,16 @@ public class CommandeStepDefinitions {
     }
 
     // ================= CREATE =================
-
     @Quand("je crée une commande pour l'utilisateur {string} avec le produit {string}")
     public void creer_commande(String userName, String productName) throws Exception {
+        // Create request map matching CreateCommandeRequestDTO
+        Map<String, Object> request = new HashMap<>();
+        request.put("userId", usersCache.get(userName).getId());
+        request.put("productsId", Arrays.asList(productsCache.get(productName).getId()));
 
-        Commande commande = new Commande();
-        commande.setDateCommande(LocalDateTime.now());
-        commande.setStatus(Status.En_attente);
-        commande.setUser(usersCache.get(userName));
-        commande.setProducts(List.of(productsCache.get(productName)));
-        commande.setPriceTotale(productsCache.get(productName).getPrice());
-
-        lastResult = mockMvc.perform(post("/api/ordres/create")
+        lastResult = mockMvc.perform(post("/api/orders/create")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(commande)));
+                .content(objectMapper.writeValueAsString(request)));
     }
 
     @Alors("la commande existe dans la base avec le statut {string}")
@@ -101,18 +95,16 @@ public class CommandeStepDefinitions {
         Status status = convert(statut);
 
         lastResult.andExpect(status().isCreated())
-                .andExpect(jsonPath("$.status").value(status.name()));
+                .andExpect(jsonPath("$.message").value("Order create with success"))
+                // FIX: Use "$.orders.status" (lowercase o) - based on your controller
+                .andExpect(jsonPath("$.orders.status").value(status.name()));
 
         assertThat(commandeRepository.findAll()).hasSize(1);
     }
-
     // ================= LIST =================
-
     @Etantdonné("les commandes suivantes existent:")
     public void commandes_existent(DataTable table) {
-
         for (Map<String, String> row : table.asMaps()) {
-
             User user = usersCache.computeIfAbsent(row.get("utilisateur"), n -> {
                 User u = new User();
                 u.setFirstName(n);
@@ -130,20 +122,25 @@ public class CommandeStepDefinitions {
                 return productRepository.save(p);
             });
 
-            Commande c = new Commande();
-            c.setDateCommande(LocalDateTime.now());
-            c.setStatus(convert(row.get("statut")));
-            c.setUser(user);
-            c.setProducts(List.of(product));
-            c.setPriceTotale(Double.parseDouble(row.get("prixTotal")));
+            // Use service to create commande properly
+            Map<String, Object> request = new HashMap<>();
+            request.put("userId", user.getId());
+            request.put("productsId", Arrays.asList(product.getId()));
 
-            commandeRepository.save(c);
+            try {
+                mockMvc.perform(post("/api/orders/create")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(request)))
+                        .andExpect(status().isCreated());
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
         }
     }
 
     @Quand("je demande la liste des commandes")
     public void lister() throws Exception {
-        lastResult = mockMvc.perform(get("/api/ordres"));
+        lastResult = mockMvc.perform(get("/api/orders"));
     }
 
     @Alors("je reçois {int} commandes")
@@ -153,71 +150,79 @@ public class CommandeStepDefinitions {
     }
 
     // ================= UPDATE =================
-
     @Etantdonné("une commande existe avec le statut {string}")
-    public void commande_existe(String statut) {
+    public void commande_existe(String statut) throws Exception {
+        // First create user and product
+        User user = new User();
+        user.setFirstName("Test");
+        user.setLastName("User");
+        user.setEmail("test@email.com");
+        user.setPhoneNumber("12345678");
+        user = userRepository.save(user);
 
-        User u = new User();
-        u.setFirstName("Test");
-        u.setLastName("User");
-        u.setEmail("test@email.com");
-        u.setPhoneNumber(UUID.randomUUID().toString().substring(0, 8));
-        u = userRepository.save(u);
+        Product product = new Product();
+        product.setNameProduct("Test Product");
+        product.setPrice(100.0);
+        product.setQuantity(5);
+        product = productRepository.save(product);
 
-        Product p = new Product();
-        p.setNameProduct("Produit");
-        p.setPrice(100.0);
-        p.setQuantity(5);
-        p = productRepository.save(p);
+        // Create commande via API
+        Map<String, Object> request = new HashMap<>();
+        request.put("userId", user.getId());
+        request.put("productsId", Arrays.asList(product.getId()));
 
-        Commande c = new Commande();
-        c.setDateCommande(LocalDateTime.now());
-        c.setStatus(convert(statut));
-        c.setUser(u);
-        c.setProducts(List.of(p));
-        c.setPriceTotale(100.0);
+        String response = mockMvc.perform(post("/api/orders/create")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
 
-        currentCommandeId = commandeRepository.save(c).getId();
+        // Extract commande ID from response
+        currentCommandeId = objectMapper.readTree(response)
+                .path("orders")
+                .path("id")
+                .asLong();
     }
 
     @Quand("je mets à jour la commande avec le statut {string}")
     public void update(String statut) throws Exception {
+        Map<String, Object> updateRequest = new HashMap<>();
+        updateRequest.put("status", statut);
+        updateRequest.put("priceTotale", 100.0);
 
-        Commande c = new Commande();
-        c.setStatus(convert(statut));
-
-        lastResult = mockMvc.perform(put("/api/ordres/" + currentCommandeId)
+        lastResult = mockMvc.perform(put("/api/orders/" + currentCommandeId)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(c)));
+                .content(objectMapper.writeValueAsString(updateRequest)));
     }
 
     @Alors("la commande a le statut {string}")
     public void verifier_update(String statut) throws Exception {
-
         lastResult.andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value(convert(statut).name()));
+                .andExpect(jsonPath("$.message").value("Update Orders Successufully"))
+                .andExpect(jsonPath("$.orders.status").value(convert(statut).name())); // Note: lowercase 'o'
     }
 
     // ================= DELETE =================
-
     @Etantdonné("une commande existe")
-    public void commande_existe() {
+    public void commande_existe() throws Exception {
         commande_existe("En_attente");
     }
 
     @Quand("je supprime la commande")
     public void supprimer() throws Exception {
-        lastResult = mockMvc.perform(delete("/api/ordres/" + currentCommandeId));
+        lastResult = mockMvc.perform(delete("/api/orders/" + currentCommandeId));
     }
 
     @Alors("la commande n'existe plus")
     public void verifier_delete() throws Exception {
-        lastResult.andExpect(status().isNoContent());
+        lastResult.andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("order delete with success"));
         assertThat(commandeRepository.existsById(currentCommandeId)).isFalse();
     }
 
     // ================= UTIL =================
-
     private Status convert(String s) {
         return Status.valueOf(s.replace("é", "e").replace("É", "E"));
     }

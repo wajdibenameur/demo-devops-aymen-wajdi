@@ -1,5 +1,6 @@
 package com.iteam.service;
 
+import com.iteam.Exceptions.NotFoundEntityExceptions;
 import com.iteam.entities.User;
 import com.iteam.repositories.UserRepository;
 import com.iteam.service.impl.UserServiceImpl;
@@ -103,8 +104,8 @@ class UserServiceTest {
 
         // Act & Assert
         assertThatThrownBy(() -> userService.findUserById(99L))
-                .isInstanceOf(RuntimeException.class)
-                .hasMessageContaining("User not found");
+                .isInstanceOf(NotFoundEntityExceptions.class)
+                .hasMessage("No User present with the ID: 99"); // Message EXACT
     }
 
     @Test

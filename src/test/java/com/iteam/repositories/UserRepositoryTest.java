@@ -22,11 +22,7 @@ class UserRepositoryTest {
     @Autowired
     private UserRepository userRepository;
 
-    // ❌ SUPPRIMEZ COMPLÈTEMENT CE BLOC ❌
-    // @BeforeEach
-    // void setUp() {
-    //     userRepository.deleteAllInBatch();  // ← PROBLÈME ICI !
-    // }
+
 
     @Test
     @DisplayName("Doit sauvegarder et retrouver un utilisateur")

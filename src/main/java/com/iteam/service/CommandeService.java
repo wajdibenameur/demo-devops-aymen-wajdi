@@ -8,7 +8,7 @@ public interface CommandeService {
 
 
     List<Commande> findAll();
-    Commande createCommande(Commande commande);
+    Commande createCommande(Long userId,List<Long> productsId);
     Commande findCommandeById(Long id);
     void deleteCommande(Long id);
     Commande updateCommande(Long id,Commande commande);

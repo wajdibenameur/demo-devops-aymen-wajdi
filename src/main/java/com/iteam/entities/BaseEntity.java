@@ -7,12 +7,8 @@ import jakarta.persistence.MappedSuperclass;
 import lombok.*;
 
 @MappedSuperclass
-@Getter
-@Setter
-@NoArgsConstructor
-@AllArgsConstructor
-@EqualsAndHashCode
-@ToString
+@Getter @Setter @NoArgsConstructor @AllArgsConstructor
+@EqualsAndHashCode@ToString
 public abstract class BaseEntity {
 
 

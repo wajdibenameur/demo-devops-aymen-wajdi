@@ -13,10 +13,12 @@ public class Application {
 		SpringApplication.run(Application.class, args);
 		System.out.println("Application started");
 	}
+
 	@Bean
 	public ObjectMapper objectMapper() {
 		ObjectMapper mapper = new ObjectMapper();
 		mapper.registerModule(new JavaTimeModule());
 		return mapper;
 	}
+
 }

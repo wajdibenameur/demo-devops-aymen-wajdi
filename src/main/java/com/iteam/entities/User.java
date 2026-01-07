@@ -14,6 +14,7 @@ import java.util.List;
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor
 @EqualsAndHashCode(callSuper = true)
 @ToString(callSuper = true)
+
 public class User extends BaseEntity {
 
 
@@ -30,16 +31,14 @@ public class User extends BaseEntity {
     @JsonIgnore
     private List<Commande> commandes;
 
-    // Constructeur pratique pour les tests
+
+    // Constructeur pratique
     public User(String firstName, String lastName, String email, String phoneNumber) {
         this.firstName = firstName;
         this.lastName = lastName;
         this.email = email;
         this.phoneNumber = phoneNumber;
     }
-
-
-
 
 
 }

@@ -1,10 +1,14 @@
-package com.iteam.service.impl;
+package com.iteam.service;
 
+import com.iteam.Exceptions.NotFoundEntityExceptions;
 import com.iteam.entities.Commande;
 import com.iteam.entities.Status;
 import com.iteam.entities.User;
 import com.iteam.entities.Product;
 import com.iteam.repositories.CommandeRepository;
+import com.iteam.repositories.UserRepository;
+import com.iteam.repositories.ProductRepository;
+import com.iteam.service.impl.CommandeServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -30,12 +34,18 @@ class CommandeServiceImplTest {
     @Mock
     private CommandeRepository commandeRepository;
 
+    @Mock
+    private UserRepository userRepository;
+
+    @Mock
+    private ProductRepository productRepository;
+
     @InjectMocks
     private CommandeServiceImpl commandeService;
 
-    private Commande commande;
     private User user;
     private Product product;
+    private Commande commande;
 
     @BeforeEach
     void setUp() {
@@ -80,20 +90,66 @@ class CommandeServiceImplTest {
     }
 
     @Test
-    @DisplayName("Créer une commande")
+    @DisplayName("Créer une commande - Succès")
     void createCommande_ShouldSaveAndReturnCommande() {
         // Arrange
+        Long userId = 1L;
+        List<Long> productIds = Arrays.asList(1L);
+
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(productRepository.findAllById(productIds)).thenReturn(Arrays.asList(product));
         when(commandeRepository.save(any(Commande.class))).thenReturn(commande);
 
         // Act
-        Commande result = commandeService.createCommande(commande);
+        Commande result = commandeService.createCommande(userId, productIds);
 
         // Assert
         assertThat(result).isNotNull();
         assertThat(result.getId()).isEqualTo(1L);
         assertThat(result.getStatus()).isEqualTo(Status.En_attente);
         assertThat(result.getPriceTotale()).isEqualTo(1500.0);
-        verify(commandeRepository, times(1)).save(commande);
+        verify(userRepository, times(1)).findById(userId);
+        verify(productRepository, times(1)).findAllById(productIds);
+        verify(commandeRepository, times(1)).save(any(Commande.class));
+    }
+
+    @Test
+    @DisplayName("Créer une commande - Utilisateur non trouvé")
+    void createCommande_WhenUserNotFound_ShouldThrowException() {
+        // Arrange
+        Long userId = 99L;
+        List<Long> productIds = Arrays.asList(1L);
+
+        when(userRepository.findById(userId)).thenReturn(Optional.empty());
+
+        // Act & Assert
+        assertThatThrownBy(() -> commandeService.createCommande(userId, productIds))
+                .isInstanceOf(NotFoundEntityExceptions.class)
+                .hasMessageContaining("User with ID");
+
+        verify(userRepository, times(1)).findById(userId);
+        verify(productRepository, never()).findAllById(any());
+        verify(commandeRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Créer une commande - Produit non trouvé")
+    void createCommande_WhenProductNotFound_ShouldThrowException() {
+        // Arrange
+        Long userId = 1L;
+        List<Long> productIds = Arrays.asList(1L, 99L);
+
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(productRepository.findAllById(productIds)).thenReturn(Arrays.asList(product)); // Retourne seulement 1 produit
+
+        // Act & Assert
+        assertThatThrownBy(() -> commandeService.createCommande(userId, productIds))
+                .isInstanceOf(NotFoundEntityExceptions.class)
+                .hasMessageContaining("One or more products were not found");
+
+        verify(userRepository, times(1)).findById(userId);
+        verify(productRepository, times(1)).findAllById(productIds);
+        verify(commandeRepository, never()).save(any());
     }
 
     @Test
@@ -120,65 +176,81 @@ class CommandeServiceImplTest {
 
         // Act & Assert
         assertThatThrownBy(() -> commandeService.findCommandeById(99L))
-                .isInstanceOf(RuntimeException.class)
-                .hasMessage("Commande not found");
+                .isInstanceOf(NotFoundEntityExceptions.class)
+                .hasMessageContaining("Commande with ID");
         verify(commandeRepository, times(1)).findById(99L);
     }
 
     @Test
-    @DisplayName("Supprimer une commande")
+    @DisplayName("Supprimer une commande - Succès")
     void deleteCommande_ShouldDelete() {
         // Arrange
-        when(commandeRepository.findById(1L)).thenReturn(Optional.of(commande));
-        doNothing().when(commandeRepository).delete(commande);
+        when(commandeRepository.existsById(1L)).thenReturn(true); // ← CHANGÉ : existsById au lieu de findById
+        doNothing().when(commandeRepository).deleteById(1L);
 
         // Act
         commandeService.deleteCommande(1L);
 
         // Assert
-        verify(commandeRepository, times(1)).findById(1L);
-        verify(commandeRepository, times(1)).delete(commande);
+        verify(commandeRepository, times(1)).existsById(1L); // ← CHANGÉ
+        verify(commandeRepository, times(1)).deleteById(1L);
     }
 
+    @Test
+    @DisplayName("Supprimer une commande - Non trouvée")
+    void deleteCommande_WhenNotExists_ShouldThrowException() {
+        // Arrange
+        when(commandeRepository.existsById(99L)).thenReturn(false); // ← CHANGÉ : existsById au lieu de findById
+
+        // Act & Assert
+        assertThatThrownBy(() -> commandeService.deleteCommande(99L))
+                .isInstanceOf(NotFoundEntityExceptions.class)
+                .hasMessageContaining("No Orders with the ID");
+
+        verify(commandeRepository, times(1)).existsById(99L); // ← CHANGÉ
+        verify(commandeRepository, never()).deleteById(any());
+    }
     @Test
     @DisplayName("Mettre à jour une commande")
     void updateCommande_ShouldUpdateAndSave() {
         // Arrange
-        Commande updatedCommande = new Commande();
-        updatedCommande.setStatus(Status.Livré);
-        updatedCommande.setPriceTotale(2000.0);
-        updatedCommande.setUser(user);
-        updatedCommande.setProducts(Arrays.asList(product));
+        Commande updatedData = new Commande();
+        updatedData.setStatus(Status.Livré);
+        updatedData.setPriceTotale(2000.0); // This will be ignored because products are updated
+        updatedData.setUser(user);
+        updatedData.setProducts(Arrays.asList(product));
 
         when(commandeRepository.findById(1L)).thenReturn(Optional.of(commande));
-        when(commandeRepository.save(any(Commande.class))).thenReturn(updatedCommande);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(productRepository.findAllById(anyList())).thenReturn(Arrays.asList(product));
+        when(commandeRepository.save(any(Commande.class))).thenReturn(commande);
 
         // Act
-        Commande result = commandeService.updateCommande(1L, updatedCommande);
+        Commande result = commandeService.updateCommande(1L, updatedData);
 
         // Assert
         assertThat(result).isNotNull();
         assertThat(result.getStatus()).isEqualTo(Status.Livré);
-        assertThat(result.getPriceTotale()).isEqualTo(2000.0);
+        // The price is recalculated based on the products, so it should be 1500.0, not 2000.0
+        assertThat(result.getPriceTotale()).isEqualTo(1500.0); // Changed from 2000.0 to 1500.0
         verify(commandeRepository, times(1)).findById(1L);
+        verify(userRepository, times(1)).findById(1L);
+        verify(productRepository, times(1)).findAllById(anyList());
         verify(commandeRepository, times(1)).save(any(Commande.class));
     }
-
     @Test
     @DisplayName("Mettre à jour une commande avec statut En_cours")
     void updateCommande_WithEnCoursStatus() {
         // Arrange
-        Commande updatedCommande = new Commande();
-        updatedCommande.setStatus(Status.En_cours);
-        updatedCommande.setPriceTotale(1800.0);
-        updatedCommande.setUser(user);
-        updatedCommande.setProducts(Arrays.asList(product));
+        Commande updatedData = new Commande();
+        updatedData.setStatus(Status.En_cours);
+        updatedData.setPriceTotale(1800.0);
 
         when(commandeRepository.findById(1L)).thenReturn(Optional.of(commande));
-        when(commandeRepository.save(any(Commande.class))).thenReturn(updatedCommande);
+        when(commandeRepository.save(any(Commande.class))).thenReturn(commande);
 
         // Act
-        Commande result = commandeService.updateCommande(1L, updatedCommande);
+        Commande result = commandeService.updateCommande(1L, updatedData);
 
         // Assert
         assertThat(result.getStatus()).isEqualTo(Status.En_cours);
@@ -189,21 +261,40 @@ class CommandeServiceImplTest {
     @DisplayName("Mettre à jour une commande avec statut Annulé")
     void updateCommande_WithAnnuleStatus() {
         // Arrange
-        Commande updatedCommande = new Commande();
-        updatedCommande.setStatus(Status.Annulé);
-        updatedCommande.setPriceTotale(0.0);
-        updatedCommande.setUser(user);
-        updatedCommande.setProducts(Arrays.asList(product));
+        Commande updatedData = new Commande();
+        updatedData.setStatus(Status.Annulé);
+        updatedData.setPriceTotale(0.0);
 
         when(commandeRepository.findById(1L)).thenReturn(Optional.of(commande));
-        when(commandeRepository.save(any(Commande.class))).thenReturn(updatedCommande);
+        when(commandeRepository.save(any(Commande.class))).thenReturn(commande);
 
         // Act
-        Commande result = commandeService.updateCommande(1L, updatedCommande);
+        Commande result = commandeService.updateCommande(1L, updatedData);
 
         // Assert
         assertThat(result.getStatus()).isEqualTo(Status.Annulé);
         assertThat(result.getPriceTotale()).isEqualTo(0.0);
+    }
+
+    @Test
+    @DisplayName("Mettre à jour une commande avec données partielles")
+    void updateCommande_WithPartialData() {
+        // Arrange - Seulement le statut est fourni
+        Commande updatedData = new Commande();
+        updatedData.setStatus(Status.Livré);
+        // priceTotale, user, products ne sont pas fournis (doivent rester inchangés)
+
+        when(commandeRepository.findById(1L)).thenReturn(Optional.of(commande));
+        when(commandeRepository.save(any(Commande.class))).thenReturn(commande);
+
+        // Act
+        Commande result = commandeService.updateCommande(1L, updatedData);
+
+        // Assert
+        assertThat(result.getStatus()).isEqualTo(Status.Livré);
+        assertThat(result.getPriceTotale()).isEqualTo(1500.0); // Inchangé
+        assertThat(result.getUser()).isEqualTo(user); // Inchangé
+        assertThat(result.getProducts()).hasSize(1); // Inchangé
     }
 
     @Test
@@ -221,32 +312,39 @@ class CommandeServiceImplTest {
     }
 
     @Test
-    @DisplayName("Créer une commande avec différents statuts")
-    void createCommande_WithDifferentStatus() {
-        // Test avec statut En_cours
-        Commande commandeEnCours = new Commande();
-        commandeEnCours.setDateCommande(LocalDateTime.now());
-        commandeEnCours.setStatus(Status.En_cours);
-        commandeEnCours.setPriceTotale(1500.0);
-        commandeEnCours.setUser(user);
-        commandeEnCours.setProducts(Arrays.asList(product));
+    @DisplayName("Créer une commande avec plusieurs produits")
+    void createCommande_WithMultipleProducts() {
+        // Arrange
+        Long userId = 1L;
+        List<Long> productIds = Arrays.asList(1L, 2L);
 
-        when(commandeRepository.save(any(Commande.class))).thenReturn(commandeEnCours);
+        Product product2 = new Product();
+        product2.setId(2L);
+        product2.setNameProduct("Mouse");
+        product2.setPrice(50.0);
 
-        Commande result = commandeService.createCommande(commandeEnCours);
-        assertThat(result.getStatus()).isEqualTo(Status.En_cours);
+        Commande commandeWithMultipleProducts = new Commande();
+        commandeWithMultipleProducts.setId(2L);
+        commandeWithMultipleProducts.setDateCommande(LocalDateTime.now());
+        commandeWithMultipleProducts.setStatus(Status.En_attente);
+        commandeWithMultipleProducts.setPriceTotale(1550.0); // 1500 + 50
+        commandeWithMultipleProducts.setUser(user);
+        commandeWithMultipleProducts.setProducts(Arrays.asList(product, product2));
 
-        // Test avec statut Livré
-        Commande commandeLivree = new Commande();
-        commandeLivree.setDateCommande(LocalDateTime.now());
-        commandeLivree.setStatus(Status.Livré);
-        commandeLivree.setPriceTotale(1500.0);
-        commandeLivree.setUser(user);
-        commandeLivree.setProducts(Arrays.asList(product));
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(productRepository.findAllById(productIds)).thenReturn(Arrays.asList(product, product2));
+        when(commandeRepository.save(any(Commande.class))).thenReturn(commandeWithMultipleProducts);
 
-        when(commandeRepository.save(any(Commande.class))).thenReturn(commandeLivree);
+        // Act
+        Commande result = commandeService.createCommande(userId, productIds);
 
-        result = commandeService.createCommande(commandeLivree);
-        assertThat(result.getStatus()).isEqualTo(Status.Livré);
+        // Assert
+        assertThat(result).isNotNull();
+        assertThat(result.getId()).isEqualTo(2L);
+        assertThat(result.getPriceTotale()).isEqualTo(1550.0);
+        assertThat(result.getProducts()).hasSize(2);
+        verify(userRepository, times(1)).findById(userId);
+        verify(productRepository, times(1)).findAllById(productIds);
+        verify(commandeRepository, times(1)).save(any(Commande.class));
     }
 }
